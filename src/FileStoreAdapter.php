@@ -375,12 +375,12 @@ class FileStoreAdapter extends AbstractAdapter implements AdapterInterface
 
             $options = array_merge(
                 $this->getOptionsFromConfig($config),
-                $this->attachAcsActionHeaderValue(
-                    $this->getHeadersFromConfig($config),
-                    'upload',
-                    (is_string($contents)) ? ['sha1' => sha1($contents)] : null
-                ),
                 [
+                    'headers' => $this->attachAcsActionHeaderValue(
+                        $this->getHeadersFromConfig($config),
+                        'upload',
+                        (is_string($contents)) ? ['sha1' => sha1($contents)] : null
+                    ),
                     'body' => $contents
                 ]
             );
