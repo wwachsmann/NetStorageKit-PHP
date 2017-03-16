@@ -373,6 +373,21 @@ class FileStoreAdapter extends AbstractAdapter implements AdapterInterface
         try {
             $this->ensurePath($path);
 
+            $options = array_merge(
+                $this->getOptionsFromConfig($config),
+                $this->attachAcsActionHeaderValue(
+                    $this->getHeadersFromConfig($config),
+                    'upload',
+                    (is_string($contents)) ? ['sha1' => sha1($contents)] : null
+                ),
+                [
+                    'body' => $contents
+                ]
+            );
+
+            $this->httpClient->put($this->applyPathPrefix($path), $options);
+
+            /*
             // Upload the file
             $this->httpClient->put($this->applyPathPrefix($path), [
                 'headers' => [
@@ -383,6 +398,7 @@ class FileStoreAdapter extends AbstractAdapter implements AdapterInterface
                 ],
                 'body' => $contents,
             ]);
+            */
         } catch (\GuzzleHttp\Exception\GuzzleException $e) {
             return false;
         }
@@ -484,5 +500,102 @@ class FileStoreAdapter extends AbstractAdapter implements AdapterInterface
         }
 
         return $meta;
+    }
+
+
+    /**
+     * @param array $headers
+     * @param $action
+     * @param array|null $options
+     * @return array
+     */
+    protected function attachAcsActionHeaderValue(array $headers, $action, array $options = null)
+    {
+        static $name = 'X-Akamai-ACS-Action';
+        if( isset($headers[ $name ]) ) {
+            $values = $tmp = $headers[ $name ];
+            if( is_string($tmp) ) {
+                parse_str($tmp, $values);
+                unset($tmp);
+            }
+
+            if( is_array($values) ) {
+                $options = array_merge($values, $options ?? []);
+            }
+        }
+
+        $headers[ $name ] = $this->getAcsActionHeaderValue($action, $options);
+        return $headers;
+    }
+
+    /**
+     * @param \League\Flysystem\Config $config
+     * @return array
+     */
+    protected function getOptionsFromConfig(\League\Flysystem\Config $config)
+    {
+        return $this->readFromConfig($config, 'options', [], 'array');
+    }
+
+    /**
+     * @param \League\Flysystem\Config $config
+     * @return array
+     */
+    protected function getHeadersFromConfig(\League\Flysystem\Config $config)
+    {
+        return $this->readFromConfig($config, 'headers', [], 'array');
+    }
+
+    /**
+     * reads an option from the config object and validates the type against the given type.
+     * the default value will be used if strict mode is not activated.
+     * an exception will be thrown in strict mode if the type does not match.
+     *
+     * @param \League\Flysystem\Config $config
+     * @param $option
+     * @param null $default
+     * @param null $type
+     * @param bool $strict
+     * @return mixed|null
+     */
+    protected function readFromConfig(\League\Flysystem\Config $config, $option,
+                                      $default = null, $type = null, $strict = false)
+    {
+        $toReturn = $config->get($option);
+        if( null !== $type ) {
+            $valid = true;
+            switch( $type ) {
+                case 'array': $valid = is_array($toReturn); break;
+                case 'integer':
+                case 'int': $valid = is_integer($toReturn); break;
+                case 'string':
+                case 'str': $valid = is_string($toReturn); break;
+                default:
+                    if( 'obj:' === substr($type, 0, 4) ) {
+                        if( false === is_object($toReturn) ) {
+                            $valid = false;
+                        } else {
+                            list($prefix, $class) = explode(':', $type);
+                            $valid = (get_class($toReturn) === $class);
+                        }
+                    }
+                    break;
+            }
+
+            if( ! $valid ) {
+                if( $strict ) {
+                    throw new \RuntimeException(sprintf(
+                        "option of '%s' must be strictly of type '%s' got '%s'",
+                        $option,
+                        $type,
+                        gettype($toReturn)
+                    ));
+                }
+
+                $toReturn = $default;
+            }
+        }
+
+        return $toReturn;
     }
 }
