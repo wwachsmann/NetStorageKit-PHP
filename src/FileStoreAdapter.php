@@ -373,32 +373,13 @@ class FileStoreAdapter extends AbstractAdapter implements AdapterInterface
         try {
             $this->ensurePath($path);
 
-            $options = array_merge(
-                $this->getOptionsFromConfig($config),
-                [
-                    'headers' => $this->attachAcsActionHeaderValue(
-                        $this->getHeadersFromConfig($config),
-                        'upload',
-                        (is_string($contents)) ? ['sha1' => sha1($contents)] : null
-                    ),
-                    'body' => $contents
-                ]
-            );
+            $additionalActionHeaderOptions = (is_string($contents)) ? ['sha1' => sha1($contents)] : null;
+            $options = $this->prepareRequestOptions($config, [
+                'headers' => $this->prepareRequestHeaders($config, 'upload', $additionalActionHeaderOptions),
+                'body' => $contents
+            ]);
 
             $this->httpClient->put($this->applyPathPrefix($path), $options);
-
-            /*
-            // Upload the file
-            $this->httpClient->put($this->applyPathPrefix($path), [
-                'headers' => [
-                    'X-Akamai-ACS-Action' => $this->getAcsActionHeaderValue(
-                        'upload',
-                        (is_string($contents)) ? ['sha1' => sha1($contents)] : null
-                    ),
-                ],
-                'body' => $contents,
-            ]);
-            */
         } catch (\GuzzleHttp\Exception\GuzzleException $e) {
             return false;
         }
@@ -502,32 +483,6 @@ class FileStoreAdapter extends AbstractAdapter implements AdapterInterface
         return $meta;
     }
 
-
-    /**
-     * @param array $headers
-     * @param $action
-     * @param array|null $options
-     * @return array
-     */
-    protected function attachAcsActionHeaderValue(array $headers, $action, array $options = null)
-    {
-        static $name = 'X-Akamai-ACS-Action';
-        if( isset($headers[ $name ]) ) {
-            $values = $tmp = $headers[ $name ];
-            if( is_string($tmp) ) {
-                parse_str($tmp, $values);
-                unset($tmp);
-            }
-
-            if( is_array($values) ) {
-                $options = array_merge($values, $options ?? []);
-            }
-        }
-
-        $headers[ $name ] = $this->getAcsActionHeaderValue($action, $options);
-        return $headers;
-    }
-
     /**
      * @param \League\Flysystem\Config $config
      * @return array
@@ -597,5 +552,61 @@ class FileStoreAdapter extends AbstractAdapter implements AdapterInterface
         }
 
         return $toReturn;
+    }
+
+    /**
+     * prepare options of the current request
+     *
+     * @param \League\Flysystem\Config $config
+     * @param array $options
+     * @return array
+     */
+    protected function prepareRequestOptions(\League\Flysystem\Config $config, array $options) {
+        return $this->mergeWithClientConfig($this->getOptionsFromConfig($config) + $options);
+    }
+
+    /**
+     * prepare the request headers and return the entire headers array
+     *
+     * @param \League\Flysystem\Config $config
+     * @param $action
+     * @param array|null $options
+     * @return array
+     */
+    protected function prepareRequestHeaders(\League\Flysystem\Config $config, $action, array $options = null) {
+        static $name = 'X-Akamai-ACS-Action';
+
+        $headers = $this->getHeadersFromConfig($config);
+        if( isset($headers[ $name ]) ) {
+            $values = $tmp = $headers[ $name ];
+            if( is_string($tmp) ) {
+                parse_str($tmp, $values);
+                unset($tmp);
+            }
+
+            if( is_array($values) ) {
+                $options = array_merge($values, $options ?? []);
+            }
+        }
+
+        $headers[ $name ] = $this->getAcsActionHeaderValue($action, $options);
+        return $headers;
+    }
+
+    /**
+     * ensure that the options are currently merged with the client's options
+     *
+     * @param array $options
+     * @return array
+     */
+    protected function mergeWithClientConfig(array $options) {
+        foreach( $options as $option => &$value ) {
+            $clientOptionValue = $this->httpClient->getConfig($option);
+            if( is_array($value) && is_array($clientOptionValue) ) {
+                $value = $value + $clientOptionValue;
+            }
+        }
+
+        return $options;
     }
 }
